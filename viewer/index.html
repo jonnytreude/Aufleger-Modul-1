@@ -57,7 +57,7 @@ const CFG = {
   capture: new THREE.Vector3(0.44, 0, -0.10), // Position der Panorama-Kamera (three-Koordinaten)
   room: { x: 14, y: 3.8, z: 10 },       // Raummaße aus Blender (m), Panorama-Kamera mittig
   panoRotation: Math.PI / 2,             // Drehung des Panoramas um die Hochachse (rad)
-  exposure: 0.22,
+  exposure: 0.32,
   envIntensity: 1.0,
   target: new THREE.Vector3(0, 0.92, 0),
   startPos: new THREE.Vector3(3.27, 1.52, 2.94),
@@ -172,7 +172,7 @@ gltfLoader.load('Aufleger_Modul_1.glb', (g) => {
     if (o.isMesh && o.material) {
       const mats = Array.isArray(o.material) ? o.material : [o.material];
       mats.forEach(mt => { if (done.has(mt)) return; done.add(mt); fixFacing(mt); if ('anisotropy' in mt) mt.anisotropy = 0;
-        if (mt.metalness > 0.9) { mt.roughness = Math.min(mt.roughness, 0.2); mt.envMapIntensity = 0.6; }  // Edelstahl: klarere, etwas gedämpfte Spiegelungen
+        if (mt.metalness > 0.9) { mt.roughness = Math.min(mt.roughness, 0.2); mt.envMapIntensity = 1.0; }  // Edelstahl: klarere, etwas gedämpfte Spiegelungen
         else mt.envMapIntensity = 0.85;  // Anisotropie braucht Tangenten, die im GLB fehlen
         if (mt.transmission > 0) { mt.transparent = true; mt.opacity = 0.25; mt.transmission = 0; mt.roughness = 0.05; mt.depthWrite = false; } });
     }
