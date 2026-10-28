@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zuführung Teller – Aufleger Modul 1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root { --granit:#24272E; --electric:#60FFB0; --stone:#D9D8D4; }
+  html,body { margin:0; height:100%; overflow:hidden; background:#e9ecee; font-family:Inter,system-ui,sans-serif; }
+  #c { position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none; }
+  .title { position:fixed; left:24px; top:20px; color:var(--granit); pointer-events:none; }
+  .title h1 { margin:0; font-size:22px; font-weight:600; letter-spacing:.01em; }
+  .title p { margin:2px 0 0; font-size:13px; opacity:.65; }
+  .hint { position:fixed; left:50%; bottom:18px; transform:translateX(-50%); font-size:12px; color:var(--granit);
+          background:rgba(255,255,255,.7); padding:6px 12px; border-radius:20px; backdrop-filter:blur(6px); transition:opacity .6s; }
+  #loader { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+            background:#eef0f1; color:var(--granit); font-size:13px; gap:12px; transition:opacity .6s; }
+  #bar { width:220px; height:3px; background:var(--stone); border-radius:2px; overflow:hidden; }
+  #bar i { display:block; height:100%; width:0; background:linear-gradient(90deg,#3ad18a,var(--electric)); transition:width .2s; }
+  .btn { position:fixed; right:20px; top:20px; border:0; background:rgba(255,255,255,.75); color:var(--granit);
+         font:600 12px Inter,sans-serif; padding:8px 12px; border-radius:18px; cursor:pointer; backdrop-filter:blur(6px); }
+  .btn:hover { background:#fff; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="title"><h1>Zuführung Teller</h1><p>Aufleger Modul 1</p></div>
+<button class="btn" id="reset">Ansicht zurücksetzen</button>
+<div class="hint" id="hint">Ziehen zum Drehen · Scrollen zum Zoomen</div>
+<div id="loader"><div id="bar"><i></i></div><span id="pct">Lade 3D-Modell …</span></div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+import { GroundedSkybox } from 'three/addons/objects/GroundedSkybox.js';
+
+// ---- Einstellungen (an Blender-Szene gekoppelt) ----
+const CFG = {
+  captureHeight: 1.6,                    // Höhe der Panorama-Kamera in Blender (m)
+  capture: new THREE.Vector3(0.44, 0, -0.10), // Position der Panorama-Kamera (three-Koordinaten)
+  skyRadius: 15,
+  panoRotation: Math.PI / 2,             // Drehung des Panoramas um die Hochachse (rad)
+  exposure: 0.22,
+  envIntensity: 1.0,
+  target: new THREE.Vector3(0, 0.92, 0),
+  startPos: new THREE.Vector3(3.27, 1.52, 2.94),
+};
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = CFG.exposure;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(40, 1, 0.05, 100);
+camera.position.copy(CFG.startPos);
+
+// Zusätzliches Hauptlicht für Glanzkanten auf Edelstahl (entspricht Key-Light in Blender)
+const key = new THREE.DirectionalLight(0xfffaf2, 0.35);
+key.position.set(3.2, 3.0, 3.1);
+scene.add(key);
+scene.add(new THREE.HemisphereLight(0xf2f7ff, 0x8a8f94, 0.3));
+
+const controls = new OrbitControls(camera, canvas);
+controls.target.copy(CFG.target);
+controls.enableDamping = true;
+controls.enablePan = false;
+controls.minDistance = 1.3;
+controls.maxDistance = 4.6;               // Raumwände liegen ~5 m vom Zentrum
+controls.maxPolarAngle = THREE.MathUtils.degToRad(84);
+controls.minPolarAngle = THREE.MathUtils.degToRad(20);
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.5;
+controls.update();
+
+const hint = document.getElementById('hint');
+controls.addEventListener('start', () => { controls.autoRotate = false; hint.style.opacity = 0; });
+document.getElementById('reset').onclick = () => {
+  camera.position.copy(CFG.startPos); controls.target.copy(CFG.target); controls.update();
+};
+
+// ---- Laden ----
+const manager = new THREE.LoadingManager();
+const bar = document.querySelector('#bar i'), pct = document.getElementById('pct');
+manager.onProgress = (_u, l, t) => { bar.style.width = (l / t * 100) + '%'; };
+manager.onLoad = () => { const L = document.getElementById('loader'); L.style.opacity = 0; setTimeout(() => L.remove(), 700); };
+
+// Umgebung (Reflexionen/Licht) aus Blender-HDR
+new RGBELoader(manager).load('env.hdr', (hdr) => {
+  hdr.mapping = THREE.EquirectangularReflectionMapping;
+  scene.environment = hdr;
+  scene.environmentIntensity = CFG.envIntensity;
+  scene.environmentRotation.y = CFG.panoRotation;
+});
+
+// Sichtbarer Raum: Panorama auf Kuppel mit Boden projiziert
+new THREE.TextureLoader(manager).load('pano.jpg', (tex) => {
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  const sky = new GroundedSkybox(tex, CFG.captureHeight, CFG.skyRadius, 256);
+  sky.material.toneMapped = false;          // Panorama ist bereits fertig belichtet
+  sky.position.y = CFG.captureHeight - 0.005;
+  sky.rotation.y = CFG.panoRotation;
+  scene.add(sky);
+});
+
+// CAD-Exporte haben oft uneinheitliche Dreiecks-Orientierung. three.js würde die Normalen dieser
+// Flächen umdrehen (Metall wird dann schwarz). Wir richten die Normale stattdessen immer zur Kamera aus.
+const FACING_CHUNK = THREE.ShaderChunk.normal_fragment_begin.replace(
+  'float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;',
+  'float faceDirection = dot( normalize( vNormal ), normalize( vViewPosition ) ) >= 0.0 ? 1.0 : - 1.0;');
+function fixFacing(mt) {
+  mt.onBeforeCompile = (sh) => { sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', FACING_CHUNK); };
+  mt.customProgramCacheKey = () => 'facing';
+}
+
+// Anlage
+const draco = new DRACOLoader().setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/libs/draco/gltf/');
+const gltfLoader = new GLTFLoader(manager).setDRACOLoader(draco);
+gltfLoader.load('Aufleger_Modul_1.glb', (g) => {
+  const m = g.scene;
+  m.position.set(-CFG.capture.x, 0, -CFG.capture.z);   // Panorama-Mittelpunkt = Ursprung
+  const done = new Set();   // Materialien werden von vielen Teilen geteilt – nur einmal anpassen
+  m.traverse(o => {
+    if (o.isMesh && o.material) {
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      mats.forEach(mt => { if (done.has(mt)) return; done.add(mt); fixFacing(mt); if ('anisotropy' in mt) mt.anisotropy = 0;
+        if (mt.metalness > 0.9) { mt.roughness = Math.min(mt.roughness, 0.2); mt.envMapIntensity = 0.6; }  // Edelstahl: klarere, etwas gedämpfte Spiegelungen
+        else mt.envMapIntensity = 0.85;  // Anisotropie braucht Tangenten, die im GLB fehlen
+        if (mt.transmission > 0) { mt.transparent = true; mt.opacity = 0.25; mt.transmission = 0; mt.roughness = 0.05; mt.depthWrite = false; } });
+    }
+  });
+  scene.add(m);
+}, (e) => { if (e.total) pct.textContent = 'Lade 3D-Modell … ' + Math.round(e.loaded / e.total * 100) + ' %'; });
+
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize); resize();
+
+renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+window.__viewer = { scene, camera, controls, renderer, CFG };
+</script>
+</body>
+</html>
