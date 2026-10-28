@@ -47,7 +47,6 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
-import { GroundedSkybox } from 'three/addons/objects/GroundedSkybox.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { N8AOPass } from 'n8ao';
@@ -56,7 +55,7 @@ import { N8AOPass } from 'n8ao';
 const CFG = {
   captureHeight: 1.6,                    // Höhe der Panorama-Kamera in Blender (m)
   capture: new THREE.Vector3(0.44, 0, -0.10), // Position der Panorama-Kamera (three-Koordinaten)
-  skyRadius: 15,
+  room: { x: 14, y: 3.8, z: 10 },       // Raummaße aus Blender (m), Panorama-Kamera mittig
   panoRotation: Math.PI / 2,             // Drehung des Panoramas um die Hochachse (rad)
   exposure: 0.22,
   envIntensity: 1.0,
@@ -113,16 +112,35 @@ new RGBELoader(manager).load('env.hdr', (hdr) => {
   scene.environmentRotation.y = CFG.panoRotation;
 });
 
-// Sichtbarer Raum: Panorama auf Kuppel mit Boden projiziert
+// Sichtbarer Raum: das Panorama wird auf eine Box mit den echten Raummaßen projiziert.
+// Jeder Punkt von Wand/Boden/Decke holt sich die Farbe aus der Richtung, in der ihn die
+// Panorama-Kamera gesehen hat -> Wände bleiben gerade, egal von wo man schaut.
 new THREE.TextureLoader(manager).load('pano.jpg', (tex) => {
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.mapping = THREE.EquirectangularReflectionMapping;
   tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  const sky = new GroundedSkybox(tex, CFG.captureHeight, CFG.skyRadius, 256);
-  sky.material.toneMapped = false;          // Panorama ist bereits fertig belichtet
-  sky.position.y = CFG.captureHeight - 0.005;
-  sky.rotation.y = CFG.panoRotation;
-  scene.add(sky);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.generateMipmaps = false; tex.minFilter = THREE.LinearFilter;   // keine Naht am Bildrand
+  const R = CFG.room;
+  const geo = new THREE.BoxGeometry(R.x, R.y, R.z);
+  const mat = new THREE.ShaderMaterial({
+    side: THREE.BackSide, toneMapped: false,
+    uniforms: { map: { value: tex }, capture: { value: new THREE.Vector3(0, CFG.captureHeight, 0) }, rot: { value: CFG.panoRotation } },
+    vertexShader: `varying vec3 vWorld;
+      void main() { vec4 w = modelMatrix * vec4(position, 1.0); vWorld = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+    fragmentShader: `uniform sampler2D map; uniform vec3 capture; uniform float rot; varying vec3 vWorld;
+      #include <common>
+      void main() {
+        vec3 d = normalize(vWorld - capture);
+        // Blender-Equirect: Bildmitte = Blickrichtung der Panorama-Kamera (-Z in three), rechts = +X
+        float u = fract(0.5 + atan(d.x, -d.z) / (2.0 * PI));
+        float v = 1.0 - acos(clamp(d.y, -1.0, 1.0)) / PI;
+        gl_FragColor = texture2D(map, vec2(u, v));
+        #include <colorspace_fragment>
+      }`,
+  });
+  const roomMesh = new THREE.Mesh(geo, mat);
+  roomMesh.position.y = R.y / 2;
+  scene.add(roomMesh);
 });
 
 // CAD-Exporte haben oft uneinheitliche Dreiecks-Orientierung. three.js würde die Normalen dieser
@@ -188,7 +206,11 @@ function resize() {
 }
 addEventListener('resize', resize); resize();
 
-renderer.setAnimationLoop(() => { controls.update(); composer.render(); });
+renderer.setAnimationLoop(() => {
+  controls.update();
+  if (camera.position.y > CFG.room.y - 0.4) { camera.position.y = CFG.room.y - 0.4; controls.update(); }  // nicht durch die Decke
+  composer.render();
+});
 window.__viewer = { scene, camera, controls, renderer, CFG, composer, aoPass };
 </script>
 </body>
